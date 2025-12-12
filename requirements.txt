@@ -1,3 +1,18 @@
-python-telegram-bot[webhooks]==21.4
-ytmusicapi
-yt-dlp==2025.12.08
+python-telegram-bot==21.4
+yt-dlp==2025.12.8
+ytmusicapi==1.11.3
+
+# Needed dependencies (auto-installed but good to lock)
+httpx==0.28.1
+httpcore==1.0.9
+anyio==4.12.0
+
+# For requests (ytmusicapi uses requests)
+requests==2.32.5
+certifi==2025.11.12
+charset-normalizer==3.4.4
+idna==3.11
+urllib3==2.6.2
+
+# Optional but recommended for ffmpeg post-processing
+ffmpeg-python==0.2.0
