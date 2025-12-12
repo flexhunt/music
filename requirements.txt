@@ -1,4 +1,3 @@
-python-telegram-bot
+python-telegram-bot[webhooks]==21.4
 ytmusicapi
-requests
 yt-dlp
