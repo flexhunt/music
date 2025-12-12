@@ -205,16 +205,19 @@ async def handle_download(update: Update, context: ContextTypes.DEFAULT_TYPE, us
         output_template = os.path.join(DOWNLOADS_DIR, f"{safe_title}_{video_id}.%(ext)s")
        
         ydl_opts = {
-            'postprocessors': [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '192',
-            }],
-            'outtmpl': output_template,
-            'quiet': True,
-            'no_warnings': True,
-            'cookiefile': 'cookies.txt',
-        }
+    # No strict 'format' - yt-dlp auto-selects best available audio
+    'format_sort': ['abr', 'asr', 'vcodec:none'],  # Sort by audio bitrate, sample rate, prefer no video
+    'postprocessors': [{
+        'key': 'FFmpegExtractAudio',
+        'preferredcodec': 'mp3',
+        'preferredquality': '192',
+    }],
+    'outtmpl': output_template,
+    'quiet': True,
+    'no_warnings': True,
+    'cookiefile': 'cookies.txt',
+    'extractaudio': True,  # Force audio extraction if needed
+}
        
         loop = asyncio.get_event_loop()
        
