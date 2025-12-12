@@ -46,7 +46,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_data[user_id] = {"results": [], "index": 0}
    
     welcome_message = (
-        "Welcome to the YouTube Music Search Bot!\n\n"
+        "Welcome to the YouTube Music Search Bot! 🎵\n\n"
         "Send me a song name and I'll search YouTube Music for you.\n"
         "You can browse through the results using the navigation buttons."
     )
@@ -124,10 +124,10 @@ async def send_result(update: Update, context: ContextTypes.DEFAULT_TYPE, user_i
         keyboard.append(nav_buttons)
    
     if song.get("videoId"):
-        keyboard.append([InlineKeyboardButton("Download Song", callback_data=f"download_{index}")])
+        keyboard.append([InlineKeyboardButton("Download Song 🎧", callback_data=f"download_{index}")])
    
     if index == len(results) - 1:
-        keyboard.append([InlineKeyboardButton("Restart Search", callback_data="restart")])
+        keyboard.append([InlineKeyboardButton("Restart Search 🔄", callback_data="restart")])
    
     reply_markup = InlineKeyboardMarkup(keyboard)
    
@@ -196,7 +196,7 @@ async def handle_download(update: Update, context: ContextTypes.DEFAULT_TYPE, us
         await query.message.reply_text("Cannot download this song.")
         return
    
-    status_msg = await query.message.reply_text("Downloading song... Please wait.")
+    status_msg = await query.message.reply_text("Downloading song... Please wait ⏳")
    
     try:
         url = f"https://music.youtube.com/watch?v={video_id}"
@@ -205,7 +205,7 @@ async def handle_download(update: Update, context: ContextTypes.DEFAULT_TYPE, us
         output_template = os.path.join(DOWNLOADS_DIR, f"{safe_title}_{video_id}.%(ext)s")
        
         ydl_opts = {
-            'format': 'best[ext=mp4]/best',  # ← YE LINE CHANGE KI HAI (ab har song download hoga)
+            'format': 'best[ext=mp4]/best',
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'mp3',
@@ -216,7 +216,7 @@ async def handle_download(update: Update, context: ContextTypes.DEFAULT_TYPE, us
             'no_warnings': True,
             'cookiefile': 'cookies.txt',
         }
-        
+       
         loop = asyncio.get_event_loop()
        
         def download():
@@ -235,7 +235,7 @@ async def handle_download(update: Update, context: ContextTypes.DEFAULT_TYPE, us
                     break
        
         if os.path.exists(mp3_file):
-            await status_msg.edit_text("Uploading to Telegram...")
+            await status_msg.edit_text("Uploading to Telegram... 📤")
            
             try:
                 with open(mp3_file, 'rb') as audio_file:
@@ -255,7 +255,7 @@ async def handle_download(update: Update, context: ContextTypes.DEFAULT_TYPE, us
            
     except Exception as e:
         logger.error(f"Download error: {e}")
-        await status_msg.edit_text(f"Download failed: {str(e)}")  # Error dikhane ke liye thoda detail add kiya
+        await status_msg.edit_text(f"Download failed: {str(e)}")
         for f in os.listdir(DOWNLOADS_DIR):
             if video_id in f:
                 try:
@@ -288,9 +288,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
    
     elif action == "restart":
         user_data[user_id] = {"results": [], "index": 0}
-        await query.message.reply_text(
-            "Search restarted! Send me a song name to search again."
-        )
+        await query.message.reply_text("Search restarted! Send me a song name to search again.")
    
     elif action.startswith("download_"):
         try:
@@ -304,7 +302,6 @@ def main():
    
     if not token:
         logger.error("TELEGRAM_BOT_TOKEN environment variable not set!")
-        print("Error: Please set the TELEGRAM_BOT_TOKEN environment variable.")
         return
    
     application = Application.builder().token(token).build()
@@ -313,9 +310,18 @@ def main():
     application.add_handler(CallbackQueryHandler(button_callback))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, search_song))
    
-    logger.info("Bot is starting...")
-    print("Bot is running! Press Ctrl+C to stop.")
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    port = int(os.environ.get("PORT", 10000))
+    service_url = os.environ.get("RENDER_EXTERNAL_URL") or f"https://{os.environ.get('RENDER_SERVICE_NAME')}.onrender.com"
+    webhook_url = f"{service_url}/{token}"
+   
+    logger.info(f"Starting webhook on {webhook_url}")
+   
+    application.run_webhook(
+        listen="0.0.0.0",
+        port=port,
+        url_path=token,
+        webhook_url=webhook_url
+    )
 
 if __name__ == "__main__":
     main()
