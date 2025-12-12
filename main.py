@@ -205,7 +205,7 @@ async def handle_download(update: Update, context: ContextTypes.DEFAULT_TYPE, us
         output_template = os.path.join(DOWNLOADS_DIR, f"{safe_title}_{video_id}.%(ext)s")
        
         ydl_opts = {
-            'format': 'bestaudio/best',
+            'format': 'best[ext=mp4]/best',  # ← YE LINE CHANGE KI HAI (ab har song download hoga)
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'mp3',
@@ -214,9 +214,9 @@ async def handle_download(update: Update, context: ContextTypes.DEFAULT_TYPE, us
             'outtmpl': output_template,
             'quiet': True,
             'no_warnings': True,
-            'cookiefile': 'cookies.txt',  # ← YE LINE ADD KI HAI (cookies se bot detection bypass)
+            'cookiefile': 'cookies.txt',
         }
-       
+        
         loop = asyncio.get_event_loop()
        
         def download():
