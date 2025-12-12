@@ -205,13 +205,7 @@ async def handle_download(update: Update, context: ContextTypes.DEFAULT_TYPE, us
         output_template = os.path.join(DOWNLOADS_DIR, f"{safe_title}_{video_id}.%(ext)s")
        
         ydl_opts = {
-    'format': 'bestaudio/best',  # Standard try
-    'extractor_args': {
-        'youtube': {
-            'player_client': ['ios', 'web', 'android'],  # Multiple clients unlock more formats (iOS best for Music)
-        },
-    },
-    'format_sort': ['abr', 'asr', 'vcodec:none'],  # Auto-sort for highest audio quality, no video
+    'format': 'bestaudio/best',
     'postprocessors': [{
         'key': 'FFmpegExtractAudio',
         'preferredcodec': 'mp3',
@@ -220,8 +214,7 @@ async def handle_download(update: Update, context: ContextTypes.DEFAULT_TYPE, us
     'outtmpl': output_template,
     'quiet': True,
     'no_warnings': True,
-    'cookiefile': 'cookies.txt',
-    'ignoreerrors': True,
+    'cookiefile': 'cookies.txt',  # ← YE LINE JARUR RAKHO (Render pe detection bypass karega)
 }
        
         loop = asyncio.get_event_loop()
