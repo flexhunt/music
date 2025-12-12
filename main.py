@@ -44,7 +44,7 @@ def get_thumbnail(thumbnails):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user_data[user_id] = {"results": [], "index": 0}
-    
+   
     welcome_message = (
         "Welcome to the YouTube Music Search Bot!\n\n"
         "Send me a song name and I'll search YouTube Music for you.\n"
@@ -55,20 +55,20 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def search_song(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     query = update.message.text
-    
+   
     if ytmusic is None:
         await update.message.reply_text("YouTube Music service is unavailable. Please try again later.")
         return
-    
+   
     await update.message.reply_text(f"Searching for: {query}...")
-    
+   
     try:
         search_results = ytmusic.search(query, filter="songs", limit=5)
-        
+       
         if not search_results:
             await update.message.reply_text("No results found. Please try a different search term.")
             return
-        
+       
         results = []
         for item in search_results[:5]:
             song_data = {
@@ -80,11 +80,11 @@ async def search_song(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "videoId": item.get("videoId", "")
             }
             results.append(song_data)
-        
+       
         user_data[user_id] = {"results": results, "index": 0}
-        
+       
         await send_result(update, context, user_id)
-        
+       
     except Exception as e:
         logger.error(f"Search error: {e}")
         await update.message.reply_text("An error occurred while searching. Please try again.")
@@ -93,17 +93,17 @@ async def send_result(update: Update, context: ContextTypes.DEFAULT_TYPE, user_i
     data = user_data.get(user_id, {})
     results = data.get("results", [])
     index = data.get("index", 0)
-    
+   
     if not results:
         return
-    
+   
     song = results[index]
-    
+   
     title = escape_html(song['title'])
     artist = escape_html(song['artist'])
     album = escape_html(song['album'])
     duration = escape_html(song['duration'])
-    
+   
     message_text = (
         f"<b>{title}</b>\n\n"
         f"Artist: {artist}\n"
@@ -111,26 +111,26 @@ async def send_result(update: Update, context: ContextTypes.DEFAULT_TYPE, user_i
         f"Duration: {duration}\n\n"
         f"Result {index + 1} of {len(results)}"
     )
-    
+   
     keyboard = []
-    
+   
     nav_buttons = []
     if index > 0:
         nav_buttons.append(InlineKeyboardButton("Previous", callback_data="prev"))
     if index < len(results) - 1:
         nav_buttons.append(InlineKeyboardButton("Next", callback_data="next"))
-    
+   
     if nav_buttons:
         keyboard.append(nav_buttons)
-    
+   
     if song.get("videoId"):
         keyboard.append([InlineKeyboardButton("Download Song", callback_data=f"download_{index}")])
-    
+   
     if index == len(results) - 1:
         keyboard.append([InlineKeyboardButton("Restart Search", callback_data="restart")])
-    
+   
     reply_markup = InlineKeyboardMarkup(keyboard)
-    
+   
     if edit_message:
         if song["thumbnail"]:
             try:
@@ -184,26 +184,26 @@ async def handle_download(update: Update, context: ContextTypes.DEFAULT_TYPE, us
     query = update.callback_query
     data = user_data.get(user_id, {})
     results = data.get("results", [])
-    
+   
     if not results or song_index >= len(results):
         await query.message.reply_text("No song to download. Please search again.")
         return
-    
+   
     song = results[song_index]
     video_id = song.get("videoId")
-    
+   
     if not video_id:
         await query.message.reply_text("Cannot download this song.")
         return
-    
+   
     status_msg = await query.message.reply_text("Downloading song... Please wait.")
-    
+   
     try:
         url = f"https://music.youtube.com/watch?v={video_id}"
-        
+       
         safe_title = "".join(c for c in song['title'] if c.isalnum() or c in (' ', '-', '_')).strip()[:50]
         output_template = os.path.join(DOWNLOADS_DIR, f"{safe_title}_{video_id}.%(ext)s")
-        
+       
         ydl_opts = {
             'format': 'bestaudio/best',
             'postprocessors': [{
@@ -214,28 +214,29 @@ async def handle_download(update: Update, context: ContextTypes.DEFAULT_TYPE, us
             'outtmpl': output_template,
             'quiet': True,
             'no_warnings': True,
+            'cookiefile': 'cookies.txt',  # ← YE LINE ADD KI HAI (cookies se bot detection bypass)
         }
-        
+       
         loop = asyncio.get_event_loop()
-        
+       
         def download():
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
                 return info
-        
+       
         info = await loop.run_in_executor(None, download)
-        
+       
         mp3_file = os.path.join(DOWNLOADS_DIR, f"{safe_title}_{video_id}.mp3")
-        
+       
         if not os.path.exists(mp3_file):
             for f in os.listdir(DOWNLOADS_DIR):
                 if video_id in f and f.endswith('.mp3'):
                     mp3_file = os.path.join(DOWNLOADS_DIR, f)
                     break
-        
+       
         if os.path.exists(mp3_file):
             await status_msg.edit_text("Uploading to Telegram...")
-            
+           
             try:
                 with open(mp3_file, 'rb') as audio_file:
                     await context.bot.send_audio(
@@ -251,10 +252,10 @@ async def handle_download(update: Update, context: ContextTypes.DEFAULT_TYPE, us
                     os.remove(mp3_file)
         else:
             await status_msg.edit_text("Failed to download. Please try again.")
-            
+           
     except Exception as e:
         logger.error(f"Download error: {e}")
-        await status_msg.edit_text(f"Download failed. Please try again later.")
+        await status_msg.edit_text(f"Download failed: {str(e)}")  # Error dikhane ke liye thoda detail add kiya
         for f in os.listdir(DOWNLOADS_DIR):
             if video_id in f:
                 try:
@@ -265,32 +266,32 @@ async def handle_download(update: Update, context: ContextTypes.DEFAULT_TYPE, us
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    
+   
     user_id = query.from_user.id
     data = user_data.get(user_id, {})
-    
+   
     if not data.get("results"):
         await query.message.reply_text("No search results found. Please send a song name to search.")
         return
-    
+   
     action = query.data
-    
+   
     if action == "next":
         if data["index"] < len(data["results"]) - 1:
             user_data[user_id]["index"] += 1
             await send_result(update, context, user_id, edit_message=query.message)
-    
+   
     elif action == "prev":
         if data["index"] > 0:
             user_data[user_id]["index"] -= 1
             await send_result(update, context, user_id, edit_message=query.message)
-    
+   
     elif action == "restart":
         user_data[user_id] = {"results": [], "index": 0}
         await query.message.reply_text(
             "Search restarted! Send me a song name to search again."
         )
-    
+   
     elif action.startswith("download_"):
         try:
             song_index = int(action.split("_")[1])
@@ -300,18 +301,18 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
-    
+   
     if not token:
         logger.error("TELEGRAM_BOT_TOKEN environment variable not set!")
         print("Error: Please set the TELEGRAM_BOT_TOKEN environment variable.")
         return
-    
+   
     application = Application.builder().token(token).build()
-    
+   
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CallbackQueryHandler(button_callback))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, search_song))
-    
+   
     logger.info("Bot is starting...")
     print("Bot is running! Press Ctrl+C to stop.")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
