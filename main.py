@@ -205,7 +205,7 @@ async def handle_download(update: Update, context: ContextTypes.DEFAULT_TYPE, us
         output_template = os.path.join(DOWNLOADS_DIR, f"{safe_title}_{video_id}.%(ext)s")
        
         ydl_opts = {
-            'format': 'best[ext=mp4]/best',
+            'format': 'bestaudio/best',
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'mp3',
