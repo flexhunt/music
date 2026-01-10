@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# main.py -- fixed YouTube Music search + download Telegram bot
+# main.py -- OAuth2 Enabled for Cloud IPs
 
 import os
 import re
@@ -16,10 +16,9 @@ from yt_dlp.utils import DownloadError
 # Config & paths
 # -------------------------
 DOWNLOADS_DIR = os.environ.get("DOWNLOADS_DIR", "downloads")
+CACHE_DIR = os.path.join(DOWNLOADS_DIR, ".cache") # Cache auth token here
 os.makedirs(DOWNLOADS_DIR, exist_ok=True)
-
-COOKIES_FILE = os.environ.get("COOKIES_FILE", "cookies.txt")
-FFMPEG_REQUIRED = True
+os.makedirs(CACHE_DIR, exist_ok=True)
 
 # -------------------------
 # Logging
@@ -51,10 +50,7 @@ user_data: Dict[int, Dict[str, Any]] = {}
 def escape_html(text: Optional[str]) -> str:
     if not text:
         return ""
-    return (text
-            .replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;"))
+    return (text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
 
 def format_duration(duration_str: Optional[str]) -> str:
     return duration_str or "Unknown"
@@ -73,136 +69,90 @@ def sanitize_filename(title: str, max_len: int = 40) -> str:
 # Format choosing logic
 # -------------------------
 def choose_format_from_formats(formats: List[Dict[str, Any]]) -> str:
-    if not formats:
-        return 'bestaudio/best'
-
+    if not formats: return 'bestaudio/best'
     exts = {f.get('ext') for f in formats if f.get('ext')}
     acodes = {f.get('acodec') for f in formats if f.get('acodec')}
-
-    if 'm4a' in exts:
-        return 'bestaudio[ext=m4a]/bestaudio/best'
-    if 'webm' in exts:
-        return 'bestaudio[ext=webm]/bestaudio/best'
-
+    if 'm4a' in exts: return 'bestaudio[ext=m4a]/bestaudio/best'
+    if 'webm' in exts: return 'bestaudio[ext=webm]/bestaudio/best'
     for codec in ('opus', 'aac', 'mp3'):
-        if codec in acodes:
-            return f"bestaudio[acodec={codec}]/bestaudio/best"
-
-    for f in formats:
-        if f.get('vcodec') == 'none':
-            return 'bestaudio/best'
-
+        if codec in acodes: return f"bestaudio[acodec={codec}]/bestaudio/best"
     return 'bestaudio/best'
 
 # -------------------------
-# Bot handlers (search & UI)
+# Bot handlers
 # -------------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user_data[user_id] = {"results": [], "index": 0}
-    welcome_message = (
-        "Welcome to the YouTube Music Search Bot! 🎵\n\n"
-        "Send me a song name and I'll search YouTube Music for you.\n"
-    )
-    await update.message.reply_text(welcome_message)
+    await update.message.reply_text("OAuth2 Bot Ready 🎵\nSend me a song name.")
 
 async def search_song(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     query = update.message.text
-
     if ytmusic is None:
-        await update.message.reply_text("YouTube Music service is unavailable.")
+        await update.message.reply_text("Service unavailable.")
         return
 
-    await update.message.reply_text(f"Searching for: {query}...")
-
+    await update.message.reply_text(f"Searching: {query}...")
     try:
         search_results = ytmusic.search(query, filter="songs", limit=5)
-
         if not search_results:
-            await update.message.reply_text("No results found.")
+            await update.message.reply_text("No results.")
             return
 
         results = []
         for item in search_results[:5]:
-            song_data = {
-                "title": item.get("title", "Unknown Title"),
-                "artist": ", ".join([a.get("name", "") for a in item.get("artists", [])]) or "Unknown Artist",
+            results.append({
+                "title": item.get("title", "Unknown"),
+                "artist": ", ".join([a.get("name", "") for a in item.get("artists", [])]) or "Unknown",
                 "album": item.get("album", {}).get("name", "N/A") if item.get("album") else "N/A",
                 "duration": format_duration(item.get("duration", "Unknown")),
                 "thumbnail": get_thumbnail(item.get("thumbnails", [])),
                 "videoId": item.get("videoId", "")
-            }
-            results.append(song_data)
+            })
 
         user_data[user_id] = {"results": results, "index": 0}
         await send_result(update, context, user_id)
-
     except Exception as e:
         logger.exception("Search error: %s", e)
-        await update.message.reply_text("An error occurred while searching.")
+        await update.message.reply_text("Search error.")
 
 async def send_result(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, edit_message=None):
     data = user_data.get(user_id, {})
     results = data.get("results", [])
     index = data.get("index", 0)
-
-    if not results:
-        return
+    if not results: return
 
     song = results[index]
-
-    title = escape_html(song['title'])
-    artist = escape_html(song['artist'])
+    text = f"<b>{escape_html(song['title'])}</b>\n{escape_html(song['artist'])}\n{index + 1}/{len(results)}"
     
-    message_text = (
-        f"<b>{title}</b>\n"
-        f"Artist: {artist}\n"
-        f"Result {index + 1} of {len(results)}"
-    )
-
     keyboard = []
-    nav_buttons = []
-    if index > 0:
-        nav_buttons.append(InlineKeyboardButton("Previous", callback_data="prev"))
-    if index < len(results) - 1:
-        nav_buttons.append(InlineKeyboardButton("Next", callback_data="next"))
-
-    if nav_buttons:
-        keyboard.append(nav_buttons)
-
-    if song.get("videoId"):
-        keyboard.append([InlineKeyboardButton("Download Song 🎧", callback_data=f"download_{index}")])
-
-    if index == len(results) - 1:
-        keyboard.append([InlineKeyboardButton("Restart Search 🔄", callback_data="restart")])
-
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    nav = []
+    if index > 0: nav.append(InlineKeyboardButton("Prev", callback_data="prev"))
+    if index < len(results) - 1: nav.append(InlineKeyboardButton("Next", callback_data="next"))
+    if nav: keyboard.append(nav)
+    if song.get("videoId"): keyboard.append([InlineKeyboardButton("Download 🎧", callback_data=f"download_{index}")])
+    
+    markup = InlineKeyboardMarkup(keyboard)
 
     if edit_message:
         try:
             if song["thumbnail"]:
                 await edit_message.delete()
-                await context.bot.send_photo(
-                    chat_id=edit_message.chat_id,
-                    photo=song["thumbnail"],
-                    caption=message_text,
-                    reply_markup=reply_markup,
-                    parse_mode="HTML"
-                )
+                await context.bot.send_photo(edit_message.chat_id, song["thumbnail"], caption=text, reply_markup=markup, parse_mode="HTML")
             else:
-                await edit_message.edit_text(text=message_text, reply_markup=reply_markup, parse_mode="HTML")
-        except Exception:
-             await context.bot.send_message(chat_id=edit_message.chat_id, text=message_text, reply_markup=reply_markup, parse_mode="HTML")
+                await edit_message.edit_text(text, reply_markup=markup, parse_mode="HTML")
+        except:
+             await context.bot.send_message(edit_message.chat_id, text, reply_markup=markup, parse_mode="HTML")
     else:
-        message = update.message if update.message else update.callback_query.message
+        msg = update.message or update.callback_query.message
         if song["thumbnail"]:
-            await message.reply_photo(photo=song["thumbnail"], caption=message_text, reply_markup=reply_markup, parse_mode="HTML")
+            await msg.reply_photo(song["thumbnail"], caption=text, reply_markup=markup, parse_mode="HTML")
         else:
-            await message.reply_text(text=message_text, reply_markup=reply_markup, parse_mode="HTML")
+            await msg.reply_text(text, reply_markup=markup, parse_mode="HTML")
 
 # -------------------------
-# Download + probe logic
+# Download Logic (OAuth2)
 # -------------------------
 async def handle_download(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, song_index: int):
     query = update.callback_query
@@ -210,174 +160,131 @@ async def handle_download(update: Update, context: ContextTypes.DEFAULT_TYPE, us
     results = data.get("results", [])
 
     if not results or song_index >= len(results):
-        await query.message.reply_text("Session expired. Search again.")
+        await query.message.reply_text("Expired. Search again.")
         return
 
     song = results[song_index]
-    original_video_id = song.get("videoId")
-    status_msg = await query.message.reply_text("Preparing download... ⏳")
+    original_id = song.get("videoId")
+    status_msg = await query.message.reply_text("Preparing... CHECK SERVER LOGS IF THIS HANGS ⚠️")
 
     loop = asyncio.get_event_loop()
 
-    # Shared Probe Function
-    def probe(url_to_probe: str):
-        probe_opts = {
-            'skip_download': True,
-            'quiet': True,
-            'no_warnings': True,
-            'allowed_extractors': ['default', 'youtube'],
-        }
-        if COOKIES_FILE and os.path.exists(COOKIES_FILE):
-            probe_opts['cookiefile'] = COOKIES_FILE
-        
-        with yt_dlp.YoutubeDL(probe_opts) as ydl:
-            return ydl.extract_info(url_to_probe, download=False)
+    # OAUTH2 OPTIONS
+    # We remove 'cookiefile' and use 'username': 'oauth2'
+    base_opts = {
+        'username': 'oauth2', 
+        'password': '',
+        'cache_dir': CACHE_DIR,
+        'skip_download': True,
+        'quiet': False, # Must be False to see the Auth Code in logs
+        'no_warnings': True,
+        'allowed_extractors': ['default', 'youtube'],
+    }
 
-    # 1. Try Direct ID (Standard & Music)
+    def probe(url, is_fallback=False):
+        opts = base_opts.copy()
+        if is_fallback:
+             # Fallback searches might not need strict auth, but we use it to be safe
+             pass 
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            return ydl.extract_info(url, download=False)
+
+    # 1. Probe
     info = None
-    used_url = None
+    used_url = f"https://www.youtube.com/watch?v={original_id}"
     
-    direct_urls = [
-        f"https://www.youtube.com/watch?v={original_video_id}",
-        f"https://music.youtube.com/watch?v={original_video_id}"
-    ]
-
-    for url in direct_urls:
+    try:
+        logger.info(f"Probing {used_url} with OAuth2...")
+        info = await loop.run_in_executor(None, probe, used_url, False)
+    except Exception as e:
+        logger.error(f"Primary probe failed: {e}")
+        # Fallback
         try:
-            info = await loop.run_in_executor(None, probe, url)
-            if info:
-                used_url = url
-                break
-        except Exception:
-            continue
+            search_query = f"ytsearch1:{song['title']} {song['artist']} audio"
+            logger.info(f"Trying fallback: {search_query}")
+            info = await loop.run_in_executor(None, probe, search_query, True)
+            if info and 'entries' in info:
+                info = info['entries'][0]
+                used_url = info.get('webpage_url')
+        except Exception as e2:
+            logger.error(f"Fallback failed: {e2}")
 
-    # 2. Fallback: If Direct ID failed (Topic/Restrictions), search for alternative
     if not info:
-        search_query = f"ytsearch1:{song.get('title')} {song.get('artist')} audio"
-        logger.info(f"Direct ID failed. Trying fallback search: {search_query}")
-        try:
-            info = await loop.run_in_executor(None, probe, search_query)
-            if info and 'entries' in info and len(info['entries']) > 0:
-                info = info['entries'][0] # Take first result
-                used_url = info.get('webpage_url', info.get('url'))
-                logger.info(f"Fallback found: {used_url}")
-        except Exception as e:
-            logger.error(f"Fallback search failed: {e}")
-
-    if not info or not used_url:
-        await status_msg.edit_text("❌ Download failed. Track is restricted and no alternative found.")
+        await status_msg.edit_text("❌ Failed. Did you authorize in the logs?")
         return
 
-    # 3. Setup Download
-    video_id = info.get('id', original_video_id)
-    safe_title = sanitize_filename(song.get('title', 'track'))
-    base_out = f"{safe_title}_{video_id}"
-    output_template = os.path.join(DOWNLOADS_DIR, f"{base_out}.%(ext)s")
-
-    formats = info.get('formats', [])
-    chosen_format = choose_format_from_formats(formats)
-
-    ydl_opts = {
-        'format': chosen_format,
-        'noplaylist': True,
-        'outtmpl': output_template,
-        'postprocessors': [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
-            'preferredquality': '192',
-        }],
-        'quiet': True,
-        'no_warnings': True,
-    }
-    if COOKIES_FILE and os.path.exists(COOKIES_FILE):
-        ydl_opts['cookiefile'] = COOKIES_FILE
-
+    # 2. Download
     await status_msg.edit_text("Downloading... ⬇️")
+    video_id = info.get('id', original_id)
+    safe_title = sanitize_filename(song.get('title', 'track'))
+    out_path = os.path.join(DOWNLOADS_DIR, f"{safe_title}_{video_id}.%(ext)s")
+
+    dl_opts = base_opts.copy()
+    dl_opts.update({
+        'skip_download': False,
+        'format': choose_format_from_formats(info.get('formats', [])),
+        'outtmpl': out_path,
+        'postprocessors': [{'key': 'FFmpegExtractAudio','preferredcodec': 'mp3','preferredquality': '192'}],
+    })
 
     try:
         def download():
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            with yt_dlp.YoutubeDL(dl_opts) as ydl:
                 return ydl.extract_info(used_url, download=True)
-
+        
         await loop.run_in_executor(None, download)
 
-        # Locate MP3
-        mp3_file = os.path.join(DOWNLOADS_DIR, f"{base_out}.mp3")
-        if not os.path.exists(mp3_file):
-             # Fallback find
+        mp3 = os.path.join(DOWNLOADS_DIR, f"{safe_title}_{video_id}.mp3")
+        # Fallback finder
+        if not os.path.exists(mp3):
             for f in os.listdir(DOWNLOADS_DIR):
-                if video_id in f and f.endswith('.mp3'):
-                    mp3_file = os.path.join(DOWNLOADS_DIR, f)
+                if video_id in f and f.endswith(".mp3"):
+                    mp3 = os.path.join(DOWNLOADS_DIR, f)
                     break
         
-        if os.path.exists(mp3_file):
+        if os.path.exists(mp3):
             await status_msg.edit_text("Uploading... 📤")
-            with open(mp3_file, 'rb') as audio_file:
-                await context.bot.send_audio(
-                    chat_id=query.message.chat_id,
-                    audio=audio_file,
-                    title=song.get('title'),
-                    performer=song.get('artist'),
-                    caption=f"{song.get('title')} - {song.get('artist')}"
-                )
-            try:
-                os.remove(mp3_file)
-                await status_msg.delete()
-            except:
-                pass
+            with open(mp3, 'rb') as f:
+                await context.bot.send_audio(query.message.chat_id, f, title=song['title'], performer=song['artist'])
+            os.remove(mp3)
+            await status_msg.delete()
         else:
-            await status_msg.edit_text("Error: File conversion failed.")
-
+            await status_msg.edit_text("Conversion failed.")
+            
     except Exception as e:
-        logger.error(f"Download Error: {e}")
-        await status_msg.edit_text("Download error. Try another song.")
+        logger.error(f"DL Error: {e}")
+        await status_msg.edit_text("Error during download.")
 
-# -------------------------
-# Callback handler
-# -------------------------
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-
     user_id = query.from_user.id
     data = user_data.get(user_id, {})
     action = query.data
-
-    if action == "next" and data["index"] < len(data["results"]) - 1:
+    
+    if action == "restart":
+        user_data[user_id] = {"results": [], "index": 0}
+        await query.message.reply_text("Restarted.")
+    elif action == "next" and data["index"] < len(data["results"]) - 1:
         user_data[user_id]["index"] += 1
         await send_result(update, context, user_id, edit_message=query.message)
     elif action == "prev" and data["index"] > 0:
         user_data[user_id]["index"] -= 1
         await send_result(update, context, user_id, edit_message=query.message)
-    elif action == "restart":
-        user_data[user_id] = {"results": [], "index": 0}
-        await query.message.reply_text("Search restarted!")
     elif action.startswith("download_"):
         await handle_download(update, context, user_id, int(action.split("_")[1]))
 
-# -------------------------
-# Main
-# -------------------------
 def main():
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
-    if not token:
-        logger.error("No Token")
-        return
-
-    application = Application.builder().token(token).build()
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CallbackQueryHandler(button_callback))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, search_song))
-
-    port = int(os.environ.get("PORT", 10000))
-    service_url = os.environ.get("RENDER_EXTERNAL_URL") or f"https://{os.environ.get('RENDER_SERVICE_NAME')}.onrender.com"
+    if not token: return
+    app = Application.builder().token(token).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(button_callback))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, search_song))
     
-    application.run_webhook(
-        listen="0.0.0.0",
-        port=port,
-        url_path=token,
-        webhook_url=f"{service_url}/{token}"
-    )
+    port = int(os.environ.get("PORT", 10000))
+    url = os.environ.get("RENDER_EXTERNAL_URL") or f"https://{os.environ.get('RENDER_SERVICE_NAME')}.onrender.com"
+    app.run_webhook(listen="0.0.0.0", port=port, url_path=token, webhook_url=f"{url}/{token}")
 
 if __name__ == "__main__":
     main()
